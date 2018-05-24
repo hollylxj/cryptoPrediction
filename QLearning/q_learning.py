@@ -53,7 +53,7 @@ def transition(state, action, price, volume, high, low, time):
     newState.marketHigh   = np.append(newState.marketHigh[1:], high)
     newState.marketLow    = np.append(newState.marketLow[1:], low)
     return newState
-    
+TRANSACTION_FEE = 0.0025    
         
 class BitcoinState:
     
@@ -76,10 +76,10 @@ class BitcoinState:
     
     def buyCoin(self, dollar):
         self.dollar -= dollar
-        self.coin += dollar / self.marketPrice[-1]
+        self.coin += (1-TRANSACTION_FEE) * dollar / self.marketPrice[-1]
         
     def sellCoin(self, dollar):
-        self.dollar += dollar
+        self.dollar += (1-TRANSACTION_FEE) * dollar
         self.coin -= dollar / self.marketPrice[-1]
         
     def netWorth(self):
@@ -95,10 +95,10 @@ class BitcoinState:
     
 def bitcoinFeatureExtractor(state, action):
     features = [
-        ("month" , state.month),
-        ("day"   , state.day),
-        ("hour"  , state.hour),
-        ("minute", state.minute),
+        #("month" , state.month),
+        #("day"   , state.day),
+        #("hour"  , state.hour),
+        #("minute", state.minute),
         ("dollar", state.dollar),
         ("coin"  , state.coin),
         ("coinWorth", state.coin * state.marketPrice[-1]),
@@ -146,7 +146,7 @@ def bucket_separate(nBuckets,bucket_list,y_distribution):
 # In[5]:
 
 #change in dollars
-action_space = [-1000.0, 0.0, 1000.0]#[-1000, -100, -10, 0, 10, 100, 1000]
+action_space = [-100000.0, 0.0, 100000.0]#[-1000, -100, -10, 0, 10, 100, 1000]
 
 #price_distribution = sorted(price)
 #nBuckets = 1024
@@ -184,7 +184,7 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
             marketHigh=high[startTimeIndex-time_range:startTimeIndex],
             marketLow=low[startTimeIndex-time_range:startTimeIndex],
             time=time[startTimeIndex - 1],
-            dollarInvestment=50000.0,
+            dollarInvestment=1000000.0,
             coin=0.0
         )
         #print("Worth:",state.netWorth(),"Price:",price[startTimeIndex], "Time:",time[startTimeIndex])

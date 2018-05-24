@@ -247,7 +247,7 @@ class QLearningApproxAlgorithm(RLAlgorithm):
     def getQ(self, state, action):
         score = 0
         for f, v in self.featureExtractor(state, action):
-            score += self.weights[f] * v
+            score += self.weights[f] * v  
         return score
     
     # This algorithm will produce an action given a state.

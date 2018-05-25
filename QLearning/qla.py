@@ -293,7 +293,12 @@ class QLearningApproxAlgorithm(RLAlgorithm):
         for f, v in self.featureExtractor(state, action):
             #if difference > 0:
             #print(f,":eta*diff*v=",eta_diff * v)
-            self.weights[f] -= max(min(eta_diff * v,5),-5)
+            self.weights[f] -= eta_diff * v
+            #self.weights[f] -= max(min(eta_diff * v,5),-5)
+        norm = max(self.weights.values(), key=lambda x : abs(x))
+        if norm != 0:
+            for f in self.weights:
+                self.weights[f] /= norm
         #if difference > 0:
         #print("weights=", self.weights)
         #input("Weights updated")

@@ -25,11 +25,12 @@ with open('../BTC-USD-60.pkl', 'rb') as f:
 #:chunk = filter_df(df_chunk, event_type='Fill')
 # sort the data based on ascending-order of time
 data = data.sort_values(by=['time'])
-price  = np.array(data.close)
-high   = np.array(data.high)
-low    = np.array(data.low)
-volume = np.array(data.volume)
-time   = np.array(data.time)
+openPrice   = np.array(data.open)
+closePrice  = np.array(data.close)
+high        = np.array(data.high)
+low         = np.array(data.low)
+volume      = np.array(data.volume)
+time        = np.array(data.time)
 
 # In[4]:
 
@@ -40,19 +41,17 @@ def switch(price,buckets):# decide which state the price belongs to
         if price >= buckets[i] and price < buckets[i+1]:
             return i
 
-def transition(state, action, price, volume, high, low, time):
-    newState = state.clone(state.marketPrice, state.marketVolume, state.marketHigh, state.marketLow, time)
+def transition(state, action):
+    newState = state.clone()
     if action < 0:
         newState.buyCoin(-action)
     elif action > 0:
         newState.sellCoin(action)
         
-    #throw least recent entry and append most recent entry
-    newState.marketPrice  = np.append(newState.marketPrice[1:], price)
-    newState.marketVolume = np.append(newState.marketVolume[1:], volume)
-    newState.marketHigh   = np.append(newState.marketHigh[1:], high)
-    newState.marketLow    = np.append(newState.marketLow[1:], low)
+    newState.advanceTimeStep()
     return newState
+
+INITIAL_INVESTMENT = 1000000
 TRANSACTION_FEE = 0.0025    
         
 class BitcoinState:
@@ -61,68 +60,130 @@ class BitcoinState:
     #marketVolume: array of last n market volume
     #marketHigh: array of last n market highs
     #marketLow: array of last n market lows
-    def __init__(self, marketPrice, marketVolume, marketHigh, marketLow, time, dollarInvestment=50000.0, coin=0.0):
-        self.dollar = dollarInvestment
+    def __init__(self, timeIndex, timeRange=60, dollar=50000.0, coin=0.0):
+        self.timeIndex = timeIndex
+        self.timeRange = timeRange
+        self.dollar = dollar
         self.coin = coin
-        self.marketPrice  = marketPrice
-        self.marketVolume = marketVolume
-        self.marketHigh   = marketHigh
-        self.marketLow    = marketLow
-        time = datetime.fromtimestamp(time).strftime('%Y-%m-%d %H:%M:%S')
-        self.month = int(time[5:7])
-        self.day = int(time[8:10])
-        self.hour = int(time[11:13])
-        self.minute = int(time[14:16])
+        
     
     def buyCoin(self, dollar):
         self.dollar -= dollar
-        self.coin += (1-TRANSACTION_FEE) * dollar / self.marketPrice[-1]
+        self.coin += (1-TRANSACTION_FEE) * dollar / closePrice[self.timeIndex]
         
     def sellCoin(self, dollar):
         self.dollar += (1-TRANSACTION_FEE) * dollar
-        self.coin -= dollar / self.marketPrice[-1]
+        self.coin -= dollar / closePrice[self.timeIndex]
         
     def netWorth(self):
-        return self.dollar + self.coin * self.marketPrice[-1]
+        return self.dollar + self.coin * closePrice[self.timeIndex]
     
-    def clone(self, marketPrice, marketVolume, marketHigh, marketLow, time):
-        return BitcoinState(marketPrice, marketVolume, marketHigh, marketLow, time, self.dollar, self.coin)
+    def advanceTimeStep(self):
+        self.timeIndex += 1
+    
+    def clone(self):
+        return BitcoinState(self.timeIndex, self.timeRange, self.dollar, self.coin)
             
     def isTerminal(self):
         return self.netWorth() <= 0
+    
+    def isValid(self):
+        return self.timeIndex >= self.timeRange \
+            and self.timeIndex < len(time) \
+            and self.dollar >= 0 \
+            and self.coin >= 0
+    
+    def getMarketHighs(self):
+        return high[self.timeIndex - self.timeRange : self.timeIndex]
+    
+    def getMarketLows(self):
+        return low[self.timeIndex - self.timeRange : self.timeIndex]
+    
+    def getMarketOpenPrices(self):
+        return openPrice[self.timeIndex - self.timeRange : self.timeIndex]
+    
+    def getMarketClosePrices(self):
+        return closePrice[self.timeIndex - self.timeRange : self.timeIndex]
+    
+    def getMarketVolumes(self):
+        return volume[self.timeIndex - self.timeRange : self.timeIndex]
+    
+    def __str__(self):
+        return '{' + \
+            'timeIndex:' + str(self.timeIndex) + ',' + \
+            'timeRange:' + str(self.timeRange) + ',' + \
+            'dollar:' + str(self.dollar) + ',' + \
+            'coin:' + str(self.coin) + \
+        '}'
         
     
     
 def bitcoinFeatureExtractor(state, action):
+      
+    newState = transition(state, action)
+    
+    #Extract asset info
     features = [
-        #("month" , state.month),
-        #("day"   , state.day),
-        #("hour"  , state.hour),
-        #("minute", state.minute),
-        ("dollar", state.dollar),
-        ("coin"  , state.coin),
-        ("coinWorth", state.coin * state.marketPrice[-1]),
-        ("action", action)
+        #("month" , month),
+        #("day"   , day),
+        #("hour"  , hour),
+        #("minute", minute),
+        #("dollar", newState.dollar),
+        #("coin"  , newState.coin),
+        #("coinWorth", newState.coin * closePrice[newState.timeIndex])
+        ("percentageWorth", newState.netWorth() / INITIAL_INVESTMENT),
+        ("percentageGrowth", (newState.netWorth()-INITIAL_INVESTMENT) / INITIAL_INVESTMENT)
     ]
-    for i, price in enumerate(state.marketPrice):
-        features.append(("price-" + str(i), price))
+    
+    #Extract time info
+    timeStr = datetime.fromtimestamp(time[newState.timeIndex]).strftime('%Y-%m-%d %H:%M:%S')
+    month   = int(timeStr[5:7])
+    day     = int(timeStr[8:10])
+    hour    = int(timeStr[11:13])
+    minute  = int(timeStr[14:16])
+    for k, v in getMonthOneHotVector(month).items():
+        features.append((k, v))
+    
+    #Extract market info
+    for i, price in enumerate(newState.getMarketOpenPrices()):
+        features.append(("openPrice-" + str(i), price))
+    
+    for i, price in enumerate(newState.getMarketClosePrices()):
+        features.append(("closePrice-" + str(i), price))
         
-    for i, volume in enumerate(state.marketVolume):
+    for i, volume in enumerate(newState.getMarketVolumes()):
         features.append(("volume-" + str(i), volume))
         
-    for i, high in enumerate(state.marketHigh):
+    for i, high in enumerate(newState.getMarketHighs()):
         features.append(("high-" + str(i), high))
         
-    for i, low in enumerate(state.marketLow):
+    for i, low in enumerate(newState.getMarketLows()):
         features.append(("low-" + str(i), low))    
         
     return features    
-    
+
+def getMonthOneHotVector(month):
+    return {
+        "January"   : int(month == 1),
+        "February"  : int(month == 2),
+        "March"     : int(month == 3),
+        "April"     : int(month == 4),
+        "May"       : int(month == 5),
+        "June"      : int(month == 6),
+        "July"      : int(month == 7),
+        "August"    : int(month == 8),
+        "September" : int(month == 9),
+        "October"   : int(month == 10),
+        "November"  : int(month == 11),
+        "December"  : int(month == 12)
+    }
+
 def getPossibleActions(state):
     possibleActions = []
-    for changeInDollar in action_space:
-        if -changeInDollar <= state.dollar and state.coin >= changeInDollar / state.marketPrice[-1]:
-            possibleActions.append(changeInDollar)
+    for action in action_space:
+        successor = transition(state, action)
+        if successor.isValid():
+            possibleActions.append(action)
     return possibleActions
     
 # Recursively get bucket separating values
@@ -146,7 +207,7 @@ def bucket_separate(nBuckets,bucket_list,y_distribution):
 # In[5]:
 
 #change in dollars
-action_space = [-100000.0, 0.0, 100000.0]#[-1000, -100, -10, 0, 10, 100, 1000]
+action_space = [-1000.0, 0.0, 1000.0]#[-1000, -100, -10, 0, 10, 100, 1000]
 
 #price_distribution = sorted(price)
 #nBuckets = 1024
@@ -162,7 +223,7 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
     totalDiscount = 1
     totalRewards = []
     
-    updateInterval = numTrials/100000
+    updateInterval = max(numTrials / 100000, 10)
     
     for trial in range(numTrials):
         
@@ -172,24 +233,21 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
         totalReward = 0
 #         totalReward_percentage = 1
         #print(len(price),len(time))
-        startTimeIndex = random.randint(time_range, len(price) - time_range - 1)
+        startTimeIndex = random.randint(time_range, len(time) - time_range - 1)
         while time[startTimeIndex + time_range] - time[startTimeIndex] != time_range * 60 \
             and time[startTimeIndex] - time[startTimeIndex - time_range] != time_range * 60:
-           startTimeIndex = random.randint(time_range, len(price) - time_range - 1)
+           startTimeIndex = random.randint(time_range, len(time) - time_range - 1)
             #current = switch(price[startTimeIndex],buckets)
         
         state = BitcoinState(
-            marketPrice=price[startTimeIndex-time_range:startTimeIndex],
-            marketVolume=volume[startTimeIndex-time_range:startTimeIndex],
-            marketHigh=high[startTimeIndex-time_range:startTimeIndex],
-            marketLow=low[startTimeIndex-time_range:startTimeIndex],
-            time=time[startTimeIndex - 1],
-            dollarInvestment=1000000.0,
+            timeIndex=startTimeIndex - 1,
+            timeRange = time_range,
+            dollar=INITIAL_INVESTMENT,
             coin=0.0
         )
         #print("Worth:",state.netWorth(),"Price:",price[startTimeIndex], "Time:",time[startTimeIndex])
         
-        for i in range(startTimeIndex, startTimeIndex+time_range):
+        for _ in range(time_range):
             #print("DEBUG: State=",state)
             #get action based on exploration policy
             # ACTION FOR Q LEARNING
@@ -198,20 +256,7 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
             successor = transition(           #apply action
                 state=state,
                 action=action,
-                price=price[i],
-                volume=volume[i],
-                high=high[i],
-                low=low[i],
-                time=time[i]
             )
-            
-            if(successor.marketPrice.size != time_range):
-                print(i)
-                print(successor.marketPrice.size)
-                print(successor.marketHigh.size)
-                print(successor.marketLow.size)
-                print(successor.marketVolume.size)
-                exit()
             
             reward = successor.netWorth() - state.netWorth()        #calculate reward
 
@@ -238,10 +283,10 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
 
 def main():
     time_range = 60
-    LEARNING_TRIALS = 1000000
-    TESTING_TRIALS = 1000
+    LEARNING_TRIALS = 100000
+    TESTING_TRIALS = 100
     
-    print("Start Learning")
+    print("Start Learning (" + str(LEARNING_TRIALS) + " trials)")
 
     #Learn with epsilon = 0.5
     #qla = QLearningAlgorithm(actions = sawyer.getActions, discount = 1, explorationProb = 0.8)
@@ -251,6 +296,7 @@ def main():
     totalRewards = myQLearning(qla, numTrials=LEARNING_TRIALS, time_range=time_range, test=False)
     ##print("Total Rewards:", totalRewards)
 
+    print("")
     print("Finish Learning")
 
     ##Act optimally by setting epsilon = 0
@@ -261,7 +307,10 @@ def main():
     print("Finish Testing")
     print("Q-Learning Completed")
     #print("Number of States explored:", len(qla.Q))
-    print("Weights", qla.weights)
+    
+    print("Top 20 Weight")
+    for w in sorted(qla.weights.items(), key=lambda x : x[1], reverse=True)[:20]:
+        print(w[0], ":", w[1])
 
 
 

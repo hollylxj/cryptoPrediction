@@ -263,7 +263,8 @@ class QLearningApproxAlgorithm(RLAlgorithm):
     # Call this function to get the step size to update the weights.
     def getStepSize(self):
         #return 1.0 / math.sqrt(self.numIters)
-        return 0.2
+        return 0.8 / math.sqrt(self.numIters) + 0.2
+        #return 0.4
     
     # We will call this function with (s, a, r, s'), which you should use to update |weights|.
     # Note that if s is a terminal state, then s' will be None.  Remember to check for this.
@@ -281,27 +282,29 @@ class QLearningApproxAlgorithm(RLAlgorithm):
         
         target = reward + self.discount * Vopt
         difference = prediction - target
-        eta = self.getStepSize()
-        eta_diff = eta * difference
-        #if difference > 0:
-        #print("s,a,r,s'=",state, action, reward, newState)
-        #print("Prediction=",prediction)
-        #print("target=",target)
-        #print("difference=",difference)
-        #print("weights=", self.weights)
-        #input("Hit to update weights")
-        for f, v in self.featureExtractor(state, action):
+        if difference != 0:
+            eta = self.getStepSize()
+            eta_diff = eta * difference
             #if difference > 0:
-            #print(f,":eta*diff*v=",eta_diff * v)
-            self.weights[f] -= eta_diff * v
-            #self.weights[f] -= max(min(eta_diff * v,5),-5)
-        norm = max(self.weights.values(), key=lambda x : abs(x))
-        if norm != 0:
-            for f in self.weights:
-                self.weights[f] /= norm
-        #if difference > 0:
-        #print("weights=", self.weights)
-        #input("Weights updated")
+            #print("s,a,r,s'=",state, action, reward, newState)
+            #print("Prediction=",prediction)
+            #print("target=",target)
+            #print("difference=",difference)
+            #print("weights=", self.weights)
+            #input("Hit to update weights")
+            for f, v in self.featureExtractor(state, action):
+                #if difference > 0:
+                #print(f,":eta*diff*v=",eta_diff * v)
+                #self.weights[f] -= eta_diff * v
+                self.weights[f] -= max(min(eta_diff * v,5),-5)
+            #norm = abs(max(self.weights.values(), key=lambda x : abs(x)))
+            #if norm != 0:
+            #    for f in self.weights:
+            #        self.weights[f] /= norm
+            #if difference > 0:
+            #print("weights=", self.weights)
+            #input("Weights updated")
+            
 
 # Performs Q-Lambda learning.  Read rla.RLAlgorithm for more information.
 # actions: a function that takes a state and returns a list of actions.

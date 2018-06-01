@@ -17,6 +17,8 @@ from datetime import datetime
 import math
 from qla import QLearningApproxAlgorithm
 
+import csv
+
 Inf = math.inf
 
 with open('../BTC-USD-60.pkl', 'rb') as f:
@@ -131,8 +133,8 @@ def bitcoinFeatureExtractor(state, action):
         #("dollar", newState.dollar),
         #("coin"  , newState.coin),
         #("coinWorth", newState.coin * closePrice[newState.timeIndex])
-        ("percentageWorth", newState.netWorth() / INITIAL_INVESTMENT),
-        ("percentageGrowth", (newState.netWorth()-INITIAL_INVESTMENT) / INITIAL_INVESTMENT)
+        ("overallGrowth", newState.netWorth() / INITIAL_INVESTMENT),
+        ("marginalGrowth", (newState.netWorth()-state.netWorth()) / state.netWorth())
     ]
     
     #Extract time info
@@ -143,6 +145,37 @@ def bitcoinFeatureExtractor(state, action):
     minute  = int(timeStr[14:16])
     for k, v in getMonthOneHotVector(month).items():
         features.append((k, v))
+    
+    #Extract market info (in percentages)
+    #price = newState.getMarketOpenPrices()
+    #for i in range(len(price) - 1):
+    #    currentPrice = price[-1]
+    #    features.append(("openPriceDiff-" + str(i), (currentPrice - price[i])/currentPrice))
+    #    features.append(("openPrice-" + str(i), price[i]/currentPrice))
+                   
+    #price = newState.getMarketClosePrices()
+    #for i in range(len(price) - 1):
+    #    currentPrice = price[-1]
+    #    features.append(("closePriceDiff-" + str(i), (currentPrice - price[i])/currentPrice))
+    #    features.append(("closePrice-" + str(i), price[i]/currentPrice))
+    
+    #price = newState.getMarketVolumes()
+    #for i in range(len(price) - 1):
+    #    currentPrice = price[-1]
+    #    features.append(("volumeDiff-" + str(i), (currentPrice - price[i])/currentPrice))
+    #    features.append(("volumePrice-" + str(i), price[i]/currentPrice))
+                   
+    #price = newState.getMarketHighs()
+    #for i in range(len(price) - 1):
+    #    currentPrice = price[-1]
+    #    features.append(("highPriceDiff-" + str(i), (currentPrice - price[i])/currentPrice))
+    #    features.append(("highPrice-" + str(i), price[i]/currentPrice))
+                   
+    #price = newState.getMarketLows()
+    #for i in range(len(price) - 1):
+    #    currentPrice = price[-1] 
+    #    features.append(("lowPriceDiff-" + str(i), (currentPrice - price[i])/currentPrice))
+    #    features.append(("lowPrice-" + str(i), price[i]/currentPrice))
     
     #Extract market info
     for i, price in enumerate(newState.getMarketOpenPrices()):
@@ -158,7 +191,7 @@ def bitcoinFeatureExtractor(state, action):
         features.append(("high-" + str(i), high))
         
     for i, low in enumerate(newState.getMarketLows()):
-        features.append(("low-" + str(i), low))    
+        features.append(("low-" + str(i), low))
         
     return features    
 
@@ -227,6 +260,8 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
     
     for trial in range(numTrials):
         
+        
+        
         if trial % updateInterval == 0:
             print("Completion:", "%0.3f" % (trial/numTrials*100),"%", end="\r", flush=True)
        
@@ -234,9 +269,8 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
 #         totalReward_percentage = 1
         #print(len(price),len(time))
         startTimeIndex = random.randint(time_range, len(time) - time_range - 1)
-        while time[startTimeIndex + time_range] - time[startTimeIndex] != time_range * 60 \
-            and time[startTimeIndex] - time[startTimeIndex - time_range] != time_range * 60:
-           startTimeIndex = random.randint(time_range, len(time) - time_range - 1)
+        while time[startTimeIndex + time_range] - time[startTimeIndex - time_range] != time_range * 120:
+            startTimeIndex = random.randint(time_range, len(time) - time_range - 1)
             #current = switch(price[startTimeIndex],buckets)
         
         state = BitcoinState(
@@ -273,6 +307,13 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
             print("Trial %d totalReward = %s" % (trial, totalReward))
             
         totalRewards.append(totalReward)
+        
+        
+        if trial % 50000 == 0:
+            with open("output-"+str(trial)+".csv", "w") as csvfile:
+                w = csv.writer(csvfile)
+                for key, val in qla.weights.items():
+                    w.writerow([key, val])
 
         
     return totalRewards
@@ -283,8 +324,8 @@ def myQLearning(qla, numTrials=1000, time_range=60, verbose=False, test = False)
 
 def main():
     time_range = 60
-    LEARNING_TRIALS = 100000
-    TESTING_TRIALS = 100
+    LEARNING_TRIALS = 2000000
+    TESTING_TRIALS = 10000
     
     print("Start Learning (" + str(LEARNING_TRIALS) + " trials)")
 
@@ -302,15 +343,18 @@ def main():
     ##Act optimally by setting epsilon = 0
     qla.explorationProb = 0
     totalRewards = myQLearning(qla, numTrials=TESTING_TRIALS, time_range=time_range,test=True)
-    print("Total Rewards:", totalRewards)
+    #print("Total Rewards:", totalRewards)
     print("Average Rewards:", sum(totalRewards)/TESTING_TRIALS)
     print("Finish Testing")
     print("Q-Learning Completed")
     #print("Number of States explored:", len(qla.Q))
     
     print("Top 20 Weight")
-    for w in sorted(qla.weights.items(), key=lambda x : x[1], reverse=True)[:20]:
+    for w in sorted(qla.weights.items(), key=lambda x : abs(x[1]), reverse=True)[:20]:
         print(w[0], ":", w[1])
+        
+        
+
 
 
 
